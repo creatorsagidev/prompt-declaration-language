@@ -23,17 +23,25 @@ from .pdl_utils import remove_none_values_from_message
 # Load environment variables
 load_dotenv()
 
-
-def _start_background_loop(loop):
-    asyncio.set_event_loop(loop)
-    loop.run_forever()
+TRUE_STRINGS = set(["true", "1", "yes", "on", "y", "enable", "enabled"])
 
 
-_LOOP = asyncio.new_event_loop()
-_LOOP_THREAD = threading.Thread(
-    target=_start_background_loop, args=(_LOOP,), daemon=True
-)
-_LOOP_THREAD.start()
+def get_asyncio_loop():
+    if environ.get("PDL_ASYNCIO_BACKGROUND_LOOP", "true").lower() not in TRUE_STRINGS:
+        return asyncio.get_event_loop()
+
+    def _start_background_loop(loop):
+        asyncio.set_event_loop(loop)
+        loop.run_forever()
+
+    _LOOP = asyncio.new_event_loop()
+    _LOOP_THREAD = threading.Thread(
+        target=_start_background_loop, args=(_LOOP,), daemon=True
+    )
+    _LOOP_THREAD.start()
+    return _LOOP
+
+
 # _BACKGROUND_TASKS = set()
 
 
@@ -98,7 +106,7 @@ class LitellmModel:
                 messages,
                 parameters,
             ),
-            _LOOP,
+            get_asyncio_loop(),
         )
         # _BACKGROUND_TASKS.add(future)
         # future.add_done_callback(_BACKGROUND_TASKS.discard)
@@ -134,7 +142,7 @@ class LitellmModel:
                 exec_nanos = block.pdl__timing.end_nanos - start
                 if "PDL_VERBOSE_ASYNC" in environ:
                     print(
-                        f"Asynchronous model call to {model_id} completed in {(exec_nanos)/1000000}ms",
+                        f"Asynchronous model call to {model_id} completed in {(exec_nanos) / 1000000}ms",
                         file=stderr,
                     )
                     msg = future.result()[0]
@@ -188,7 +196,7 @@ MapOutputT = TypeVar("MapOutputT")
 def map_future(
     f: Callable[[MapInputT], MapOutputT], x: Future[MapInputT]
 ) -> Future[MapOutputT]:
-    future = asyncio.run_coroutine_threadsafe(_async_call(f, x), _LOOP)
+    future = asyncio.run_coroutine_threadsafe(_async_call(f, x), get_asyncio_loop())
     return future
 
 
